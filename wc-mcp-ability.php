@@ -4,7 +4,7 @@
  * Plugin URI: https://github.com/woocommerce/wc-mcp-ability
  * Description: Demonstrates how to expose a WooCommerce store ability through the WordPress MCP Adapter.
  * Version: 1.1.0
- * Requires at least: 6.9
+ * Requires at least: 7.0
  * Requires PHP: 8.0
  * Author: WooCommerce
  * Author URI: https://woocommerce.com/
