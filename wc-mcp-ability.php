@@ -1,17 +1,21 @@
 <?php
 /**
  * Plugin Name: WooCommerce MCP Ability Demo
- * Plugin URI: https://github.com/woocommerce/woocommerce
- * Description: Demonstrates how third-party plugins can integrate with the WooCommerce MCP server by registering custom abilities.
- * Version: 1.0.0
- * Requires at least: 6.0
+ * Plugin URI: https://github.com/woocommerce/wc-mcp-ability
+ * Description: Demonstrates how to expose a WooCommerce store ability through the WordPress MCP Adapter.
+ * Version: 1.1.0
+ * Requires at least: 7.0
  * Requires PHP: 8.0
  * Author: WooCommerce
  * Author URI: https://woocommerce.com/
  * Text Domain: wc-mcp-ability
  * Domain Path: /languages
  * Requires Plugins: woocommerce
+ *
+ * @package WCAbilitiesDemo
  */
+
+// phpcs:ignoreFile WordPress.Files.FileName.InvalidClassFileName -- This single-file demo keeps its class in the plugin entry file.
 
 declare( strict_types=1 );
 
@@ -20,48 +24,53 @@ namespace WCAbilitiesDemo;
 defined( 'ABSPATH' ) || exit;
 
 /**
- * WooCommerce Abilities Demo Plugin
+ * WooCommerce Abilities Demo Plugin.
  *
  * This plugin demonstrates how third-party developers can integrate with the
- * WooCommerce MCP (Model Context Protocol) server by registering their own abilities
- * using the WordPress Abilities API.
+ * WordPress MCP Adapter by registering an ability with the WordPress Abilities API.
  */
 class WCAbilitiesDemo {
 
 	/**
 	 * Plugin version.
 	 */
-	public const VERSION = '1.0.0';
+	public const VERSION = '1.1.0';
 
 	/**
 	 * Initialize the plugin.
 	 */
 	public static function init(): void {
-		// Register our store info ability when the abilities API is ready
-		add_action( 'abilities_api_init', array( __CLASS__, 'register_store_info_ability' ) );
+		add_action( 'wp_abilities_api_categories_init', array( __CLASS__, 'register_ability_category' ) );
+		add_action( 'wp_abilities_api_init', array( __CLASS__, 'register_store_info_ability' ) );
+	}
 
-		// Allow our demo ability to be included in MCP server
-		add_filter( 'woocommerce_mcp_include_ability', array( __CLASS__, 'include_demo_ability_in_mcp' ), 10, 2 );
+	/**
+	 * Register the category before abilities are registered.
+	 */
+	public static function register_ability_category(): void {
+		wp_register_ability_category(
+			'woocommerce-demo',
+			array(
+				'label'       => __( 'WooCommerce Demo', 'wc-mcp-ability' ),
+				'description' => __( 'Example abilities for WooCommerce stores.', 'wc-mcp-ability' ),
+			)
+		);
 	}
 
 	/**
 	 * Register the store info ability with the WordPress Abilities API.
 	 *
 	 * This demonstrates how third-party plugins can register abilities that
-	 * will be automatically discovered and made available through the MCP server.
+	 * can be discovered through the WordPress MCP Adapter's default server.
 	 */
 	public static function register_store_info_ability(): void {
-		// Only proceed if wp_register_ability function exists (from WordPress Abilities API)
-		if ( ! function_exists( 'wp_register_ability' ) ) {
-			return;
-		}
-
 		wp_register_ability(
 			'woocommerce-demo/store-info',
 			array(
-				'label'             => __( 'Get Store Information (Demo)', 'wc-mcp-ability' ),
-				'description'       => __( 'Demo implementation: Retrieves basic information about the WooCommerce store including name, URL, version, and basic statistics.', 'wc-mcp-ability' ),
-				'input_schema'      => array(
+				'label'               => __( 'Get Store Information (Demo)', 'wc-mcp-ability' ),
+				'description'         => __( 'Retrieves store information and optional statistics from WooCommerce.', 'wc-mcp-ability' ),
+				'category'            => 'woocommerce-demo',
+				'input_schema'        => array(
 					'type'       => 'object',
 					'properties' => array(
 						'include_stats' => array(
@@ -71,7 +80,7 @@ class WCAbilitiesDemo {
 						),
 					),
 				),
-				'output_schema'     => array(
+				'output_schema'       => array(
 					'type'       => 'object',
 					'properties' => array(
 						'store_name'          => array( 'type' => 'string' ),
@@ -107,6 +116,12 @@ class WCAbilitiesDemo {
 				),
 				'execute_callback'    => array( __CLASS__, 'execute_store_info_ability' ),
 				'permission_callback' => array( __CLASS__, 'check_store_info_permission' ),
+				'meta'                => array(
+					'mcp' => array(
+						'public' => true,
+						'type'   => 'tool',
+					),
+				),
 			)
 		);
 	}
@@ -118,7 +133,7 @@ class WCAbilitiesDemo {
 	 * @return array Store information.
 	 */
 	public static function execute_store_info_ability( array $input ): array {
-		// Build the basic store information
+		// Build the basic store information.
 		$result = array(
 			'store_name'          => get_bloginfo( 'name' ),
 			'store_url'           => get_site_url(),
@@ -130,7 +145,7 @@ class WCAbilitiesDemo {
 			'plugin_source'       => 'WooCommerce Abilities Demo Plugin v' . self::VERSION,
 		);
 
-		// Include statistics if requested
+		// Include statistics if requested.
 		if ( ! empty( $input['include_stats'] ) ) {
 			$result['stats'] = self::get_store_statistics();
 		}
@@ -144,10 +159,10 @@ class WCAbilitiesDemo {
 	 * @return array Store statistics.
 	 */
 	private static function get_store_statistics(): array {
-		// Products use 'publish' status
+		// Count published products.
 		$product_count = (int) wp_count_posts( 'product' )->publish;
 
-		// Orders - using WooCommerce order status constants
+		// Count orders in the seven standard statuses.
 		$completed_count  = wc_orders_count( 'completed' );
 		$processing_count = wc_orders_count( 'processing' );
 		$pending_count    = wc_orders_count( 'pending' );
@@ -168,15 +183,15 @@ class WCAbilitiesDemo {
 
 		$order_count = array_sum( $order_breakdown );
 
-		// Customers - count users with 'customer' role
+		// Count users with the customer role.
 		$users_counts   = count_users();
 		$customer_count = isset( $users_counts['avail_roles']['customer'] ) ? (int) $users_counts['avail_roles']['customer'] : 0;
 
 		return array(
-			'product_count'    => $product_count,
-			'order_count'      => $order_count,
-			'order_breakdown'  => $order_breakdown,
-			'customer_count'   => $customer_count,
+			'product_count'   => $product_count,
+			'order_count'     => $order_count,
+			'order_breakdown' => $order_breakdown,
+			'customer_count'  => $customer_count,
 		);
 	}
 
@@ -186,26 +201,11 @@ class WCAbilitiesDemo {
 	 * @return bool Whether user has permission.
 	 */
 	public static function check_store_info_permission(): bool {
-		// Allow users who can manage WooCommerce (same as system_status endpoint)
+		// Match the WooCommerce system status endpoint's capability check.
+		// phpcs:ignore WordPress.WP.Capabilities.Unknown -- WooCommerce registers the manage_woocommerce capability.
 		return current_user_can( 'manage_woocommerce' );
-	}
-
-	/**
-	 * Filter to include demo ability in MCP server.
-	 *
-	 * @param bool   $include    Whether to include the ability.
-	 * @param string $ability_id The ability ID being checked.
-	 * @return bool Whether to include the ability.
-	 */
-	public static function include_demo_ability_in_mcp( bool $include, string $ability_id ): bool {
-		// Include our demo ability even though it doesn't have woocommerce/ namespace
-		if ( 'woocommerce-demo/store-info' === $ability_id ) {
-			return true;
-		}
-
-		return $include;
 	}
 }
 
-// Initialize the plugin
+// Initialize the plugin.
 WCAbilitiesDemo::init();
